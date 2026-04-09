@@ -1,0 +1,37 @@
+name: Support Rotation — Quarterly Audit
+
+on:
+  schedule:
+    - cron: "0 8 1 1,4,7,10 *"  # 8am UTC on the 1st of Jan, Apr, Jul, Oct
+  workflow_dispatch:               # Manual trigger from GitHub Actions UI
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Write Google credentials file
+        run: echo '${{ secrets.GOOGLE_CREDENTIALS_JSON }}' > google-service-account.json
+
+      - name: Run quarterly audit
+        env:
+          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+          NOTION_DATABASE_ID: ${{ secrets.NOTION_DATABASE_ID }}
+          GOOGLE_CREDENTIALS: ./google-service-account.json
+          GOOGLE_CALENDAR_ID: ${{ secrets.GOOGLE_CALENDAR_ID }}
+          GOOGLE_GROUP_EMAIL: ${{ secrets.GOOGLE_GROUP_EMAIL }}
+          GOOGLE_ADMIN_EMAIL: ${{ secrets.GOOGLE_ADMIN_EMAIL }}
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: npm start
