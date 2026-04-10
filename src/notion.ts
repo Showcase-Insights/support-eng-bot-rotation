@@ -64,7 +64,7 @@ export async function writeSignUp(
   });
 }
 
-export async function getRecentlyAssigned(weeks: number = 11): Promise<string[]> {
+export async function getRecentlyAssigned(weeks: number = 12): Promise<string[]> {
   const since = new Date();
   since.setDate(since.getDate() - weeks * 7);
 
