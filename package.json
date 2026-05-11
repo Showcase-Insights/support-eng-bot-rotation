@@ -4,8 +4,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "vitest run",
-    "test:watch": "vitest",
+    "test": "echo \"Error: no test specified\" && exit 1",
     "start": "ts-node src/index.ts",
     "build": "tsc",
     "run:compiled": "node dist/index.js"
@@ -22,7 +21,6 @@
   "devDependencies": {
     "@types/node": "^25.5.2",
     "ts-node": "^10.9.2",
-    "typescript": "^6.0.2",
-    "vitest": "^4.1.6"
+    "typescript": "^6.0.2"
   }
 }
