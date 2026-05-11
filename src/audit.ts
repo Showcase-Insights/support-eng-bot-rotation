@@ -1,6 +1,12 @@
 import type { GroupMember } from "./groups";
 import { getExistingAssignee, upsertRotationEvent } from "./calendar";
-import { getSignUpForWeek, writeSignUp, getRecentlyAssigned } from "./notion";
+import {
+  getSignUpForWeek,
+  writeSignUp,
+  updateSignUp,
+  getPageIdForWeek,
+  getRecentlyAssigned,
+} from "./notion";
 import { pickMember } from "./rotation";
 
 export interface WeekSlot {
@@ -13,19 +19,27 @@ export interface AuditResult {
   weekEnd: string;
   assignee: string;
   source: "existing" | "notion" | "random";
-  changed?: "synced-to-calendar" | "synced-to-notion" | "calendar-updated" | "new-assignment";
+  changed?:
+    | "synced-to-calendar"
+    | "synced-to-notion"
+    | "calendar-updated"
+    | "new-assignment"
+    | "reassigned-removed-member";
 }
 
 /**
- * Generate every Mon→Sun week slot for the next 3 months starting today.
+ * Generate every Mon→Sun week slot for the next 3 months, strictly in the
+ * future. The current week (and any past week) is never included — we do
+ * not manipulate today's week of rotation.
  */
 export function getQuarterWeeks(): WeekSlot[] {
   const weeks: WeekSlot[] = [];
 
-  // Start from the next Monday on or after today
+  // Always start from the *next* Monday, even if today is Monday.
+  // This guarantees we never touch the current week of rotation.
   const start = new Date();
   const dayOfWeek = start.getDay();
-  const daysUntilMonday = dayOfWeek === 1 ? 0 : (8 - dayOfWeek) % 7;
+  const daysUntilMonday = dayOfWeek === 1 ? 7 : (8 - dayOfWeek) % 7;
   start.setDate(start.getDate() + daysUntilMonday);
   start.setHours(0, 0, 0, 0);
 
@@ -48,6 +62,25 @@ export function getQuarterWeeks(): WeekSlot[] {
 }
 
 /**
+ * Returns true when `assigneeName` (and/or `assigneeEmail`) corresponds to
+ * a current member of the Google Group. Comparison is case-insensitive on
+ * both name and email so we don't churn over capitalization differences.
+ */
+function isAssigneeInGroup(
+  assigneeName: string,
+  assigneeEmail: string | undefined,
+  members: GroupMember[]
+): boolean {
+  const nameLc = assigneeName.toLowerCase();
+  const emailLc = assigneeEmail?.toLowerCase();
+  return members.some(
+    (m) =>
+      m.name.toLowerCase() === nameLc ||
+      (!!emailLc && m.email.toLowerCase() === emailLc)
+  );
+}
+
+/**
  * Audit all weeks in the next quarter.
  * - Skip weeks that already have a calendar event
  * - Use Notion sign-ups where present
@@ -65,6 +98,40 @@ export async function auditQuarter(members: GroupMember[]): Promise<AuditResult[
     // 1. Check both sources
     const notionSignUp = await getSignUpForWeek(weekStart);
     const calendarAssignee = await getExistingAssignee(weekStart, weekEnd);
+
+    // 2. If either source names an assignee no longer in the Google Group,
+    // re-assign for this (future) week. Notion + Calendar are written
+    // together so they stay in sync.
+    const notionAssigneeMissing =
+      notionSignUp &&
+      !isAssigneeInGroup(notionSignUp.name, notionSignUp.email, members);
+    const calendarAssigneeMissing =
+      !!calendarAssignee &&
+      !isAssigneeInGroup(calendarAssignee, undefined, members);
+
+    if (notionAssigneeMissing || calendarAssigneeMissing) {
+      const removedName = notionSignUp?.name ?? calendarAssignee ?? "unknown";
+      const recentlyAssigned = await getRecentlyAssigned(members.length);
+      const replacement = pickMember(members, recentlyAssigned);
+
+      const existingPage = await getPageIdForWeek(weekStart);
+      if (existingPage) {
+        await updateSignUp(existingPage.pageId, replacement.name, replacement.email, true);
+      } else {
+        await writeSignUp(weekStart, replacement.name, replacement.email, true);
+      }
+      await upsertRotationEvent(weekStart, weekEnd, replacement.name, replacement.email);
+
+      console.log(`re-assigned (was ${removedName}, no longer in group) → ${replacement.name}`);
+      results.push({
+        weekStart,
+        weekEnd,
+        assignee: replacement.name,
+        source: "random",
+        changed: "reassigned-removed-member",
+      });
+      continue;
+    }
 
     if (notionSignUp && calendarAssignee) {
       // Both exist — check if they match, update calendar if they don't
@@ -99,7 +166,9 @@ export async function auditQuarter(members: GroupMember[]): Promise<AuditResult[
       continue;
     }
 
-    // Neither has it — randomly assign, ensuring everyone goes once per cycle
+    // Neither has it (this also covers the “Notion row exists but Name is
+    // empty” case — getSignUpForWeek returns null and writeSignUp upserts
+    // into the existing row).
     const recentlyAssigned = await getRecentlyAssigned(members.length);
     const picked = pickMember(members, recentlyAssigned);
     await writeSignUp(weekStart, picked.name, picked.email, true);
