@@ -5,8 +5,9 @@ import {
   writeSignUp,
   updateSignUp,
   getPageIdForWeek,
+  getYearToDateAssignmentsWithDates,
 } from "./notion";
-import { buildRotationQueue } from "./rotation";
+import { FairRotationPicker } from "./rotation";
 
 export interface WeekSlot {
   weekStart: string; // YYYY-MM-DD (Monday)
@@ -105,14 +106,25 @@ export async function auditQuarter(
     `\n${tag}Auditing ${weeks.length} weeks (${weeks[0].weekStart} → ${weeks[weeks.length - 1].weekEnd})\n`,
   );
 
-  // Round-robin queue: round 1 gives everyone exactly one slot (shuffled
-  // randomly), round 2 gives 5 randomly chosen members a second slot.
-  // With 8 members × 13 weeks: 5 people get 2 weeks, 3 people get 1 week.
-  // No one gets a second slot before everyone has had one first.
-  const rotationQueue = buildRotationQueue(members, weeks.length);
-  let queueIdx = 0;
+  // Fetch year-to-date assignments from Notion
+  const firstWeekStart = weeks[0].weekStart;
+  const ytdAssignments = await getYearToDateAssignmentsWithDates(firstWeekStart);
 
+  // Build week context: initialize with existing assignments from Notion/Calendar
+  const weekContext: Array<{ weekStart: string; assignee?: string }> = [];
   for (const { weekStart, weekEnd } of weeks) {
+    const notionSignUp = await getSignUpForWeek(weekStart);
+    const calendarAssignee = await getExistingAssignee(weekStart, weekEnd);
+    const assignee =
+      notionSignUp?.name || calendarAssignee || undefined;
+    weekContext.push({ weekStart, assignee });
+  }
+
+  // Initialize fair rotation picker
+  const picker = new FairRotationPicker(members, ytdAssignments, weekContext);
+
+  for (let i = 0; i < weeks.length; i++) {
+    const { weekStart, weekEnd } = weeks[i];
     process.stdout.write(`  Week of ${weekStart}: `);
 
     // 1. Check both sources
@@ -131,7 +143,7 @@ export async function auditQuarter(
 
     if (notionAssigneeMissing || calendarAssigneeMissing) {
       const removedName = notionSignUp?.name ?? calendarAssignee ?? "unknown";
-      const replacement = rotationQueue[queueIdx++];
+      const replacement = picker.pickForWeek(i);
 
       if (!dryRun) {
         const existingPage = await getPageIdForWeek(weekStart);
@@ -247,15 +259,15 @@ export async function auditQuarter(
       continue;
     }
 
-    // Neither has it (this also covers the “Notion row exists but Name is
-    // empty” case — getSignUpForWeek returns null and writeSignUp upserts
+    // Neither has it (this also covers the "Notion row exists but Name is
+    // empty" case — getSignUpForWeek returns null and writeSignUp upserts
     // into the existing row).
-    const picked = rotationQueue[queueIdx++];
+    const picked = picker.pickForWeek(i);
     if (!dryRun) {
       await writeSignUp(weekStart, picked.name, picked.email, true);
       await upsertRotationEvent(weekStart, weekEnd, picked.name, picked.email);
     }
-    console.log(`${tag}randomly assigned → ${picked.name}`);
+    console.log(`${tag}fairly assigned → ${picked.name}`);
     results.push({
       weekStart,
       weekEnd,

@@ -147,12 +147,20 @@ export async function clearSignUp(pageId: string): Promise<void> {
   });
 }
 
+export interface YearToDateAssignment {
+  name: string;
+  weekStart: string;
+}
+
 /**
- * Returns names of assignees for weeks that fall within the current calendar
- * year but BEFORE `beforeDateISO`. Used to seed the fair-rotation picker so
- * members who were already assigned earlier this year are de-prioritised.
+ * Returns assignees with their week dates for weeks that fall within the
+ * current calendar year but BEFORE `beforeDateISO`. Used to implement fair
+ * rotation that prioritizes people who haven't gone this year, then those
+ * who went earliest.
  */
-export async function getYearToDateAssignees(beforeDateISO: string): Promise<string[]> {
+export async function getYearToDateAssignmentsWithDates(
+  beforeDateISO: string
+): Promise<YearToDateAssignment[]> {
   const yearStart = new Date();
   yearStart.setMonth(0, 1);
   yearStart.setHours(0, 0, 0, 0);
@@ -169,11 +177,28 @@ export async function getYearToDateAssignees(beforeDateISO: string): Promise<str
     .filter(isFullPage)
     .map((page) => {
       const nameProp = page.properties["Name"];
-      return nameProp?.type === "title" && nameProp.title.length > 0
-        ? nameProp.title[0].plain_text.trim()
-        : "";
+      const weekProp = page.properties["Week"];
+      const name =
+        nameProp?.type === "title" && nameProp.title.length > 0
+          ? nameProp.title[0].plain_text.trim()
+          : "";
+      const weekStart =
+        weekProp?.type === "date" && weekProp.date?.start
+          ? weekProp.date.start
+          : "";
+      return { name, weekStart };
     })
-    .filter(Boolean);
+    .filter((a) => a.name && a.weekStart);
+}
+
+/**
+ * Returns names of assignees for weeks that fall within the current calendar
+ * year but BEFORE `beforeDateISO`. Used to seed the fair-rotation picker so
+ * members who were already assigned earlier this year are de-prioritised.
+ */
+export async function getYearToDateAssignees(beforeDateISO: string): Promise<string[]> {
+  const assignments = await getYearToDateAssignmentsWithDates(beforeDateISO);
+  return assignments.map((a) => a.name);
 }
 
 export async function getRecentlyAssigned(weeks: number = 12): Promise<string[]> {
