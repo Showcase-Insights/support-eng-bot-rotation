@@ -28,6 +28,20 @@ export function buildRotationQueue(
       const j = Math.floor(Math.random() * (i + 1));
       [round[i], round[j]] = [round[j], round[i]];
     }
+    // Prevent the same person appearing in consecutive weeks at a round
+    // boundary (e.g. last slot of round 1 = first slot of round 2).
+    // Swap the first element of this round with the next available
+    // different member if a collision exists.
+    if (queue.length > 0) {
+      const lastEmail = queue[queue.length - 1].email;
+      if (round[0].email === lastEmail && round.length > 1) {
+        // Find the first element that differs and swap it to position 0
+        const swapIdx = round.findIndex((m) => m.email !== lastEmail);
+        if (swapIdx !== -1) {
+          [round[0], round[swapIdx]] = [round[swapIdx], round[0]];
+        }
+      }
+    }
     queue.push(...round.slice(0, Math.min(round.length, slotsNeeded - queue.length)));
   }
   return queue;
