@@ -17,6 +17,7 @@ export async function notifySlackQuarterly(results: AuditResult[]): Promise<void
     "synced-to-calendar": "📅 Synced to calendar",
     "synced-to-notion": "📝 <https://www.notion.so/letshighlight/33d267bfb84780cc98fdcb271eee7010?v=33d267bfb847803b9338000c19ccd735|Synced to Notion>",
     "calendar-updated": "🔄 Calendar updated",
+    "reassigned-removed-member": "👤 Re-assigned (removed member)",
   };
 
   const lines = changes.map((r) => {

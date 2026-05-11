@@ -65,11 +65,41 @@ cp .env.example .env
 
 ### Running locally
 
+#### Preview (dry-run) — no writes
+
+```sh
+npm start -- --dry-run
+```
+
+Runs the full audit logic — reads Notion and Calendar, applies the fair-rotation picker — but **makes no changes**. Nothing is written to Notion, Google Calendar, or Slack. Every line in the output is prefixed with `[DRY-RUN]` so it's clear nothing was committed.
+
+Use this before any real run to see exactly what the schedule will look like.
+
+#### Live run — writes everything
+
 ```sh
 npm start
 ```
 
-This runs the full quarterly audit against your configured Notion database and Google Calendar. **It will create real calendar events and Notion rows**, so use caution — consider pointing to a test calendar/database first.
+Runs the full audit and **commits all changes**: Notion rows are created/updated, Google Calendar events are created/deleted, and the Slack summary is posted (if `SLACK_WEBHOOK_URL` is set).
+
+#### Rebalancing the quarter
+
+Use `rebalance.cjs` to wipe all upcoming sign-up rows (Notion + Calendar) and start fresh. This is useful when the existing schedule is uneven — e.g. after several members leave the group and their weeks were re-assigned unevenly.
+
+```sh
+# 1. Preview what will be cleared (dry-run, no writes)
+node rebalance.cjs
+
+# 2. Apply — wipes all future Notion rows and matching Calendar events
+node rebalance.cjs --apply
+
+# 3. Re-fill with a fair distribution
+npm start -- --dry-run   # preview the new schedule
+npm start                # commit it
+```
+
+The rebalance clears **every** future row regardless of whether it was manually signed up (`Auto-assigned = false`) or auto-filled (`Auto-assigned = true`). After clearing, `npm start` uses the count-based fair picker to distribute the weeks evenly across all 8 active members: with 13 weeks and 8 members, the result is 5 members × 2 weeks + 3 members × 1 week.
 
 ### Building
 
@@ -96,9 +126,14 @@ The workflow lives at `.github/workflows/support-rotation.yml`. GitHub Actions s
 
 ## Testing
 
-There are no automated tests yet. To verify changes:
+```sh
+npm test
+```
 
-1. Point `GOOGLE_CALENDAR_ID` and `NOTION_DATABASE_ID` at test/sandbox resources.
-2. Run `npm start` and check the console output for the audit summary.
-3. Confirm calendar events and Notion rows were created correctly.
-4. Use `workflow_dispatch` to test the full CI pipeline on a branch before merging.
+Runs the unit test suite (Vitest). Tests cover Notion upsert behavior and the Slack notification helper.
+
+For end-to-end verification:
+
+1. Run `npm start -- --dry-run` to preview the planned schedule without touching anything.
+2. If the output looks correct, run `npm start` to commit.
+3. Use `workflow_dispatch` to test the full CI pipeline on a branch before merging.

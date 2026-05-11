@@ -20,7 +20,8 @@ function validateEnv(): void {
 
 async function main(): Promise<void> {
   validateEnv();
-  console.log("\nSupport rotation — quarterly audit\n");
+  const dryRun = process.argv.includes("--dry-run");
+  console.log(`\nSupport rotation — quarterly audit${dryRun ? " (DRY-RUN, no writes)" : ""}\n`);
 
   // 1. Fetch all active members from the Google Group
   console.log(`Fetching members from: ${process.env.GOOGLE_GROUP_EMAIL}`);
@@ -28,15 +29,15 @@ async function main(): Promise<void> {
   console.log(`  Found ${members.length} active members`);
 
   // 2. Audit every week in the next 3 months
-  const results = await auditQuarter(members);
+  const results = await auditQuarter(members, { dryRun });
 
   // 3. Print the full summary to console / CI logs
   printAuditSummary(results);
 
-  // 4. Send a Slack summary (optional)
-  await notifySlackQuarterly(results);
+  // 4. Send a Slack summary (skip in dry-run)
+  if (!dryRun) await notifySlackQuarterly(results);
 
-  console.log("Quarterly audit complete.\n");
+  console.log(`${dryRun ? "(dry-run) " : ""}Quarterly audit complete.\n`);
 }
 
 main().catch((err) => {
